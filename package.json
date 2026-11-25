@@ -1,0 +1,23 @@
+{
+  "name": "web-ii-tp-4",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TP4 - Lista compartida en tiempo real con Node.js, TypeScript, WebSocket, SSE y DummyJSON",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env server/src/index.ts",
+    "start:dev": "tsx --env-file-if-exists=.env server/src/index.ts",
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/server/src/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
