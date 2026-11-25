@@ -18,7 +18,7 @@
 - [x] **Módulo 2:** Contrato de Mensajes y Validación en TypeScript (`docs/modulos/modulo-02-contrato-y-validacion.md`)
 - [x] **Módulo 3:** Estado en Memoria y Reglas de Negocio (`docs/modulos/modulo-03-estado-y-reglas.md`)
 - [x] **Módulo 4:** Integración Asíncrona con DummyJSON (`docs/modulos/modulo-04-catalogo-asincrono.md`)
-- [ ] **Módulo 5:** Servidor HTTP + WebSocket para Participantes (`docs/modulos/modulo-05-servidor-websocket.md`)
+- [x] **Módulo 5:** Servidor HTTP + WebSocket para Participantes (`docs/modulos/modulo-05-servidor-websocket.md`)
 - [ ] **Módulo 6:** Server-Sent Events (SSE) para la Pantalla (`docs/modulos/modulo-06-sse-pantalla.md`)
 - [ ] **Módulo 7:** Frontend en React + Vite (Participante y Pantalla) (`docs/modulos/modulo-07-frontend-react.md`)
 - [ ] **Módulo 8:** Documentación Final (`README.md`) y Evidencias (`docs/modulos/modulo-08-readme-y-evidencias.md`)
