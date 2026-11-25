@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { DummyJsonCatalogClient, type CatalogClient } from "./catalogClient.js";
 import type { AppConfig } from "./config.js";
 import { ProposalService } from "./proposalService.js";
+import { SseBroker } from "./sseBroker.js";
 import { GiftListStore } from "./store.js";
 import { WsGateway, type StateChangeListener } from "./wsGateway.js";
 
@@ -14,6 +15,7 @@ export interface AppOverrides {
 export interface GiftListApp {
   httpServer: Server;
   wsGateway: WsGateway;
+  sseBroker: SseBroker;
   store: GiftListStore;
   close(): Promise<void>;
 }
@@ -40,10 +42,16 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
       delayMs: config.catalogDelayMs,
     });
   const proposalService = new ProposalService(store, catalogClient);
+  const sseBroker = new SseBroker(store);
 
   const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+    if (method === "GET" && url.pathname === "/events") {
+      sseBroker.handleRequest(req, res);
+      return;
+    }
 
     if (method === "GET" && url.pathname === "/health") {
       sendJson(res, 200, {
@@ -57,6 +65,7 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
         stats: {
           participants: store.getParticipantCount(),
           products: store.getSortedProducts().length,
+          sseClients: sseBroker.getClientCount(),
         },
       });
       return;
@@ -73,14 +82,19 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
     store,
     proposalService,
     path: "/ws",
-    onStateChange: overrides.onStateChange,
+    onStateChange: () => {
+      sseBroker.broadcastState();
+      overrides.onStateChange?.();
+    },
   });
 
   return {
     httpServer,
     wsGateway,
+    sseBroker,
     store,
     async close(): Promise<void> {
+      sseBroker.closeAll();
       await wsGateway.close();
       await new Promise<void>((resolve, reject) => {
         httpServer.close((err) => (err ? reject(err) : resolve()));

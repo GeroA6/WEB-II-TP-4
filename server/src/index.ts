@@ -7,6 +7,7 @@ const app = createGiftListApp(config);
 app.httpServer.listen(config.port, () => {
   console.log(`Servidor escuchando en http://localhost:${config.port}`);
   console.log(`WebSocket disponible en ws://localhost:${config.port}/ws`);
+  console.log(`SSE pantalla disponible en http://localhost:${config.port}/events`);
   console.log(
     `Catálogo: ${config.catalogUrl} | Timeout: ${config.catalogTimeoutMs}ms | Delay simulado: ${config.catalogDelayMs}ms`
   );
