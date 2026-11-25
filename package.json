@@ -9,7 +9,8 @@
     "start:dev": "tsx --env-file-if-exists=.env server/src/index.ts",
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/server/src/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test server/src/*.test.ts"
   },
   "dependencies": {
     "ws": "^8.18.0"
