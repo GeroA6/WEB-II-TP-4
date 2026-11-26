@@ -86,6 +86,7 @@ export type ClientMessage =
 
 export interface WelcomeMessage {
   type: "welcome";
+  roomCode: string;
   self: Participant;
   participants: Participant[];
   products: ProductItem[];
@@ -125,6 +126,7 @@ export type ServerMessage =
 // ----------------------------------------------------------------------------
 
 export interface ScreenStateEvent {
+  roomCode: string;
   products: ProductItem[];
   participantCount: number;
 }

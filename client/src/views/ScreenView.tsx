@@ -2,13 +2,15 @@ import { ProductCard } from "../components/ProductCard";
 import { useScreenEvents } from "../hooks/useScreenEvents";
 
 export function ScreenView() {
-  const { connectionState, products, participantCount } = useScreenEvents();
+  const { roomCode, connectionState, products, participantCount } = useScreenEvents();
 
   return (
     <div className="container screen-container">
       <header className="app-header screen-header">
         <div>
-          <h1>Ranking en Vivo · Pantalla Compartida</h1>
+          <h1>
+            Ranking en Vivo · Lista <span className="room-badge">{roomCode}</span>
+          </h1>
           <p className="muted">
             Actualización automática por Server-Sent Events (solo lectura) · Estado:{" "}
             <span className={`status-pill status-${connectionState}`}>

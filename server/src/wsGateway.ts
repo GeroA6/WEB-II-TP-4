@@ -1,17 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import type { ClientMessage, Participant, ServerMessage } from "../../shared/protocol.js";
-import type { ProposalService } from "./proposalService.js";
-import type { GiftListStore } from "./store.js";
+import { normalizeRoomCode, type RoomContext, type RoomManager } from "./roomManager.js";
 import { parseClientMessage } from "./validation.js";
 
-export type StateChangeListener = () => void;
+export type StateChangeListener = (roomCode: string) => void;
 
 export interface WsGatewayDependencies {
   httpServer: Server;
-  store: GiftListStore;
-  proposalService: ProposalService;
+  roomManager: RoomManager;
   path?: string;
   heartbeatIntervalMs?: number;
   onStateChange?: StateChangeListener;
@@ -19,21 +17,19 @@ export interface WsGatewayDependencies {
 
 /**
  * Capa de transporte WebSocket para participantes (SRP + OCP).
- * Comparte el mismo servidor HTTP y puerto, delega validaciones y reglas de negocio,
- * detecta conexiones muertas mediante ping/pong y notifica cambios de estado mediante onStateChange.
+ * Comparte el mismo servidor HTTP y puerto, aísla sesiones y broadcasts por código de lista (?room=...),
+ * detecta conexiones muertas mediante ping/pong y notifica cambios de estado por sala.
  */
 export class WsGateway {
   private readonly wss: WebSocketServer;
-  private readonly store: GiftListStore;
-  private readonly proposalService: ProposalService;
-  private readonly joinedSockets = new Map<string, WebSocket>();
+  private readonly roomManager: RoomManager;
+  private readonly socketsByRoom = new Map<string, Map<string, WebSocket>>();
   private readonly aliveState = new WeakMap<WebSocket, boolean>();
   private readonly onStateChange?: StateChangeListener;
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor(deps: WsGatewayDependencies) {
-    this.store = deps.store;
-    this.proposalService = deps.proposalService;
+    this.roomManager = deps.roomManager;
     this.onStateChange = deps.onStateChange;
 
     this.wss = new WebSocketServer({
@@ -41,7 +37,7 @@ export class WsGateway {
       path: deps.path ?? "/ws",
     });
 
-    this.wss.on("connection", (ws) => this.handleConnection(ws));
+    this.wss.on("connection", (ws, req) => this.handleConnection(ws, req));
 
     const heartbeatMs = deps.heartbeatIntervalMs ?? 15000;
     if (heartbeatMs > 0) {
@@ -52,7 +48,6 @@ export class WsGateway {
   private runHeartbeat(): void {
     for (const ws of this.wss.clients) {
       if (this.aliveState.get(ws) === false) {
-        // No respondió pong al ping anterior: conexión muerta -> terminar
         ws.terminate();
         continue;
       }
@@ -61,7 +56,21 @@ export class WsGateway {
     }
   }
 
-  private handleConnection(ws: WebSocket): void {
+  private handleConnection(ws: WebSocket, req: IncomingMessage): void {
+    const url = new URL(req.url ?? "/ws", `http://${req.headers.host ?? "localhost"}`);
+    const roomCode = normalizeRoomCode(url.searchParams.get("room"));
+
+    if (!roomCode) {
+      this.send(ws, {
+        type: "error",
+        code: "INVALID_MESSAGE",
+        message: "Código de lista inválido. Debe tener entre 2 y 20 caracteres alfanuméricos o guiones.",
+      });
+      ws.close(1008, "Invalid room code");
+      return;
+    }
+
+    const room = this.roomManager.getOrCreateRoom(roomCode);
     let sessionId: string | null = null;
     this.aliveState.set(ws, true);
 
@@ -82,19 +91,19 @@ export class WsGateway {
         return;
       }
 
-      sessionId = this.handleMessage(ws, sessionId, parsed.value);
+      sessionId = this.handleMessage(ws, room, sessionId, parsed.value);
     });
 
     ws.on("close", () => {
       if (sessionId !== null) {
-        this.cleanupConnection(sessionId);
+        this.cleanupConnection(room, sessionId);
         sessionId = null;
       }
     });
 
     ws.on("error", () => {
       if (sessionId !== null) {
-        this.cleanupConnection(sessionId);
+        this.cleanupConnection(room, sessionId);
         sessionId = null;
       }
     });
@@ -102,9 +111,12 @@ export class WsGateway {
 
   private handleMessage(
     ws: WebSocket,
+    room: RoomContext,
     currentSessionId: string | null,
     msg: ClientMessage
   ): string | null {
+    const roomSockets = this.getOrCreateRoomSockets(room.code);
+
     switch (msg.type) {
       case "join": {
         if (currentSessionId !== null) {
@@ -116,15 +128,14 @@ export class WsGateway {
           return currentSessionId;
         }
 
-        // Reutiliza participantId previo si la sesión anterior ya se desconectó
         const candidateId =
           msg.participantId &&
-          !this.joinedSockets.has(msg.participantId) &&
-          !this.store.getParticipant(msg.participantId)
+          !roomSockets.has(msg.participantId) &&
+          !room.store.getParticipant(msg.participantId)
             ? msg.participantId
             : randomUUID();
 
-        const result = this.store.joinParticipant(candidateId, msg.name);
+        const result = room.store.joinParticipant(candidateId, msg.name);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
@@ -134,31 +145,31 @@ export class WsGateway {
           return null;
         }
 
-        this.joinedSockets.set(candidateId, ws);
+        roomSockets.set(candidateId, ws);
 
-        // Quien entra recibe el estado completo de inmediato
         this.send(ws, {
           type: "welcome",
+          roomCode: room.code,
           self: result.value,
-          participants: this.store.getParticipants(),
-          products: this.store.getSortedProducts(),
+          participants: room.store.getParticipants(),
+          products: room.store.getSortedProducts(),
         });
 
-        // Los demás participantes conectados reciben la lista actualizada
-        this.broadcast(
+        this.broadcastToRoom(
+          room.code,
           {
             type: "participants_updated",
-            participants: this.store.getParticipants(),
+            participants: room.store.getParticipants(),
           },
           candidateId
         );
-        this.onStateChange?.();
+        this.onStateChange?.(room.code);
         return candidateId;
       }
 
       case "propose_products": {
         const participant =
-          currentSessionId !== null ? this.store.getParticipant(currentSessionId) : undefined;
+          currentSessionId !== null ? room.store.getParticipant(currentSessionId) : undefined;
         if (!participant) {
           this.send(ws, {
             type: "error",
@@ -168,8 +179,7 @@ export class WsGateway {
           return currentSessionId;
         }
 
-        // Operación asíncrona sin bloquear el Event Loop ni a los demás usuarios
-        void this.handleProposal(ws, participant, msg.productIds);
+        void this.handleProposal(ws, room, participant, msg.productIds);
         return currentSessionId;
       }
 
@@ -182,7 +192,7 @@ export class WsGateway {
           });
           return null;
         }
-        const result = this.store.voteProduct(currentSessionId, msg.productId);
+        const result = room.store.voteProduct(currentSessionId, msg.productId);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
@@ -192,7 +202,7 @@ export class WsGateway {
           return currentSessionId;
         }
 
-        this.broadcastProducts();
+        this.broadcastProducts(room);
         return currentSessionId;
       }
 
@@ -205,7 +215,7 @@ export class WsGateway {
           });
           return null;
         }
-        const result = this.store.unvoteProduct(currentSessionId, msg.productId);
+        const result = room.store.unvoteProduct(currentSessionId, msg.productId);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
@@ -215,7 +225,7 @@ export class WsGateway {
           return currentSessionId;
         }
 
-        this.broadcastProducts();
+        this.broadcastProducts(room);
         return currentSessionId;
       }
 
@@ -228,7 +238,7 @@ export class WsGateway {
           });
           return null;
         }
-        const result = this.store.removeProduct(currentSessionId, msg.productId);
+        const result = room.store.removeProduct(currentSessionId, msg.productId);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
@@ -238,7 +248,7 @@ export class WsGateway {
           return currentSessionId;
         }
 
-        this.broadcastProducts();
+        this.broadcastProducts(room);
         return currentSessionId;
       }
     }
@@ -246,17 +256,17 @@ export class WsGateway {
 
   private async handleProposal(
     ws: WebSocket,
+    room: RoomContext,
     proposer: Participant,
     productIds: number[]
   ): Promise<void> {
     try {
-      const outcome = await this.proposalService.proposeProducts(proposer, productIds);
+      const outcome = await room.proposalService.proposeProducts(proposer, productIds);
 
       if (outcome.addedIds.length > 0) {
-        this.broadcastProducts();
+        this.broadcastProducts(room);
       }
 
-      // Los errores/resultados parciales se envían SOLO a quien propuso
       this.send(ws, {
         type: "proposal_result",
         addedIds: outcome.addedIds,
@@ -271,25 +281,40 @@ export class WsGateway {
     }
   }
 
-  private broadcastProducts(): void {
-    this.broadcast({
+  private broadcastProducts(room: RoomContext): void {
+    this.broadcastToRoom(room.code, {
       type: "products_updated",
-      products: this.store.getSortedProducts(),
+      products: room.store.getSortedProducts(),
     });
-    this.onStateChange?.();
+    this.onStateChange?.(room.code);
   }
 
-  private cleanupConnection(connectionId: string): void {
-    this.joinedSockets.delete(connectionId);
-    const removed = this.store.leaveParticipant(connectionId);
-
-    if (removed) {
-      this.broadcast({
-        type: "participants_updated",
-        participants: this.store.getParticipants(),
-      });
-      this.onStateChange?.();
+  private cleanupConnection(room: RoomContext, sessionId: string): void {
+    const roomSockets = this.socketsByRoom.get(room.code);
+    if (roomSockets) {
+      roomSockets.delete(sessionId);
+      if (roomSockets.size === 0) {
+        this.socketsByRoom.delete(room.code);
+      }
     }
+
+    const removed = room.store.leaveParticipant(sessionId);
+    if (removed) {
+      this.broadcastToRoom(room.code, {
+        type: "participants_updated",
+        participants: room.store.getParticipants(),
+      });
+      this.onStateChange?.(room.code);
+    }
+  }
+
+  private getOrCreateRoomSockets(roomCode: string): Map<string, WebSocket> {
+    let sockets = this.socketsByRoom.get(roomCode);
+    if (!sockets) {
+      sockets = new Map<string, WebSocket>();
+      this.socketsByRoom.set(roomCode, sockets);
+    }
+    return sockets;
   }
 
   private send(ws: WebSocket, message: ServerMessage): void {
@@ -298,10 +323,19 @@ export class WsGateway {
     }
   }
 
-  private broadcast(message: ServerMessage, excludeConnectionId?: string): void {
+  private broadcastToRoom(
+    roomCode: string,
+    message: ServerMessage,
+    excludeSessionId?: string
+  ): void {
+    const sockets = this.socketsByRoom.get(roomCode);
+    if (!sockets) {
+      return;
+    }
+
     const payload = JSON.stringify(message);
-    for (const [id, socket] of this.joinedSockets.entries()) {
-      if (id === excludeConnectionId) {
+    for (const [id, socket] of sockets.entries()) {
+      if (id === excludeSessionId) {
         continue;
       }
       if (socket.readyState === WebSocket.OPEN) {
@@ -331,7 +365,7 @@ export class WsGateway {
     for (const client of this.wss.clients) {
       client.terminate();
     }
-    this.joinedSockets.clear();
+    this.socketsByRoom.clear();
     return new Promise((resolve) => {
       this.wss.close(() => resolve());
     });

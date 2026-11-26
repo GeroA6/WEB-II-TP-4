@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { JoinForm } from "../components/JoinForm";
 import { ProductCard } from "../components/ProductCard";
 import { ProposalForm } from "../components/ProposalForm";
@@ -5,6 +6,7 @@ import { useParticipantSocket } from "../hooks/useParticipantSocket";
 
 export function ParticipantView() {
   const {
+    roomCode,
     connectionState,
     self,
     participants,
@@ -19,8 +21,17 @@ export function ParticipantView() {
     removeProduct,
     clearError,
   } = useParticipantSocket();
+  const [copied, setCopied] = useState(false);
 
   const isClosed = connectionState !== "open";
+  const screenHref = `/pantalla?room=${encodeURIComponent(roomCode)}`;
+
+  function handleCopyInvite() {
+    const inviteUrl = `${window.location.origin}/?room=${encodeURIComponent(roomCode)}`;
+    void navigator.clipboard?.writeText(inviteUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
 
   return (
     <div className="container">
@@ -28,7 +39,7 @@ export function ParticipantView() {
         <div>
           <h1>Regalo Grupal · Participante</h1>
           <p className="muted">
-            Conexión WebSocket:{" "}
+            Lista: <strong className="room-badge">{roomCode}</strong> · WebSocket:{" "}
             <span className={`status-pill status-${connectionState}`}>
               {connectionState === "open"
                 ? "Conectado"
@@ -46,13 +57,25 @@ export function ParticipantView() {
             )}
           </p>
         </div>
-        <a href="/pantalla" target="_blank" rel="noreferrer" className="nav-link">
-          Abrir Pantalla (SSE) ↗
-        </a>
+        <div className="header-actions">
+          {self && (
+            <button type="button" className="btn-secondary" onClick={handleCopyInvite}>
+              {copied ? "¡Link copiado!" : "Copiar link de lista"}
+            </button>
+          )}
+          <a href={screenHref} target="_blank" rel="noreferrer" className="nav-link">
+            Abrir Pantalla (SSE) ↗
+          </a>
+        </div>
       </header>
 
       {!self ? (
-        <JoinForm disabled={isClosed} error={error} onJoin={join} />
+        <JoinForm
+          initialRoomCode={roomCode}
+          disabled={isClosed}
+          error={error}
+          onJoin={join}
+        />
       ) : (
         <>
           {connectionState === "reconnecting" && (

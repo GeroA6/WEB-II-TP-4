@@ -2,10 +2,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { resolve } from "node:path";
 import { DummyJsonCatalogClient, type CatalogClient } from "./catalogClient.js";
 import type { AppConfig } from "./config.js";
-import { ProposalService } from "./proposalService.js";
+import { DEFAULT_ROOM_CODE, normalizeRoomCode, RoomManager } from "./roomManager.js";
 import { SseBroker } from "./sseBroker.js";
 import { StaticFileServer } from "./staticFiles.js";
-import { GiftListStore } from "./store.js";
+import type { GiftListStore } from "./store.js";
 import { WsGateway, type StateChangeListener } from "./wsGateway.js";
 
 export interface AppOverrides {
@@ -19,6 +19,7 @@ export interface GiftListApp {
   httpServer: Server;
   wsGateway: WsGateway;
   sseBroker: SseBroker;
+  roomManager: RoomManager;
   store: GiftListStore;
   close(): Promise<void>;
 }
@@ -33,10 +34,9 @@ function sendJson(res: ServerResponse, statusCode: number, payload: unknown): vo
 }
 
 /**
- * Compone todas las dependencias del servidor en un único servidor HTTP/WebSocket (DIP + SRP).
+ * Compone todas las dependencias del servidor en un único servidor HTTP/WebSocket/SSE (DIP + SRP).
  */
 export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {}): GiftListApp {
-  const store = overrides.store ?? new GiftListStore();
   const catalogClient =
     overrides.catalogClient ??
     new DummyJsonCatalogClient({
@@ -44,8 +44,8 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
       timeoutMs: config.catalogTimeoutMs,
       delayMs: config.catalogDelayMs,
     });
-  const proposalService = new ProposalService(store, catalogClient);
-  const sseBroker = new SseBroker(store);
+  const roomManager = new RoomManager(catalogClient, overrides.store);
+  const sseBroker = new SseBroker(roomManager);
   const staticFiles = new StaticFileServer(
     overrides.clientDistDir ?? resolve(process.cwd(), "dist/client")
   );
@@ -55,7 +55,14 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
     if (method === "GET" && url.pathname === "/events") {
-      sseBroker.handleRequest(req, res);
+      const roomCode = normalizeRoomCode(url.searchParams.get("room"));
+      if (!roomCode) {
+        sendJson(res, 400, {
+          error: "Código de lista inválido. Debe tener entre 2 y 20 caracteres alfanuméricos o guiones.",
+        });
+        return;
+      }
+      sseBroker.handleRequest(req, res, roomCode);
       return;
     }
 
@@ -71,8 +78,9 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
           wsHeartbeatMs: config.wsHeartbeatMs,
         },
         stats: {
-          participants: store.getParticipantCount(),
-          products: store.getSortedProducts().length,
+          rooms: roomManager.getRoomCount(),
+          participants: roomManager.getTotalParticipantCount(),
+          products: roomManager.getTotalProductCount(),
           sseClients: sseBroker.getClientCount(),
         },
       });
@@ -91,13 +99,12 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
 
   const wsGateway = new WsGateway({
     httpServer,
-    store,
-    proposalService,
+    roomManager,
     path: "/ws",
     heartbeatIntervalMs: config.wsHeartbeatMs,
-    onStateChange: () => {
-      sseBroker.broadcastState();
-      overrides.onStateChange?.();
+    onStateChange: (roomCode) => {
+      sseBroker.broadcastState(roomCode);
+      overrides.onStateChange?.(roomCode);
     },
   });
 
@@ -105,7 +112,8 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
     httpServer,
     wsGateway,
     sseBroker,
-    store,
+    roomManager,
+    store: roomManager.getOrCreateRoom(DEFAULT_ROOM_CODE).store,
     async close(): Promise<void> {
       sseBroker.closeAll();
       await wsGateway.close();

@@ -76,6 +76,28 @@ body {
   flex-wrap: wrap;
 }
 
+.stack-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.room-badge {
+  display: inline-block;
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 0.05rem 0.5rem;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .inline-form input {
   flex: 1;
   min-width: 220px;

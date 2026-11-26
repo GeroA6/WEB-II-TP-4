@@ -22,7 +22,7 @@
 - [x] **Módulo 6:** Server-Sent Events (SSE) para la Pantalla (`docs/modulos/modulo-06-sse-pantalla.md`)
 - [x] **Módulo 7:** Frontend en React + Vite (Participante y Pantalla) (`docs/modulos/modulo-07-frontend-react.md`)
 - [ ] **Módulo 8:** Documentación Final (`README.md`) y Evidencias (`docs/modulos/modulo-08-readme-y-evidencias.md`)
-- [ ] **Módulo 9 (Opcional):** Mejoras extra
+- [x] **Módulo 9 (Opcional):** Mejoras extra (`docs/modulos/modulo-09-opcionales.md`)
 
 ---
 

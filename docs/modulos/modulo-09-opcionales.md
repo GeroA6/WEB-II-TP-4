@@ -64,3 +64,25 @@ Ya cubierto de forma transversal desde el Módulo 2 (validación de mensajes en 
 - `npm run typecheck` → OK.
 - `npm run build:server` → OK.
 - `npm test` → **28/28 pruebas aprobadas** (8 suites).
+
+---
+
+## Opcional 5: Varias listas independientes con código para unirse
+
+### Qué hicimos
+- `server/src/roomManager.ts`:
+  - Implementa `RoomManager` (SRP + OCP + ISP) que crea y administra salas independientes por código (`Map<roomCode, RoomContext>`), reutilizando `GiftListStore` y `ProposalService` sin modificarlos.
+  - Expone `normalizeRoomCode()` (2 a 20 caracteres alfanuméricos o guiones en mayúsculas, con `"GENERAL"` por defecto para mantener 100% retrocompatibilidad) y la interfaz de solo lectura `ReadOnlyRoomProvider` para `SseBroker`.
+- `server/src/wsGateway.ts`, `server/src/sseBroker.ts`, `server/src/app.ts` y `shared/protocol.ts`:
+  - Tanto `/ws?room=<CODIGO>` como `/events?room=<CODIGO>` operan por sala: participantes, nombres únicos, productos, votos y eventos SSE están completamente aislados entre listas.
+  - `WelcomeMessage` y `ScreenStateEvent` incluyen `roomCode`.
+- `client/src/`:
+  - `JoinForm` permite ingresar un código de lista existente o generar uno aleatorio (`GIFT-XXXX`).
+  - `ParticipantView` muestra el código activo, un botón **"Copiar link de lista"** (`/?room=<CODIGO>`) y el enlace **"Abrir Pantalla (SSE)"** apuntando directo a `/pantalla?room=<CODIGO>`.
+  - `useParticipantSocket` persiste `{ id, name, roomCode }` en `sessionStorage` para que la reconexión automática vuelva a la misma lista.
+- `server/src/roomManager.test.ts`: 2 pruebas verificando normalización de códigos y aislamiento total (WS + SSE) entre `SALA-A` y `SALA-B`.
+
+### Verificación
+- `npm run typecheck` → OK (backend + React).
+- `npm run build` → OK (`dist/server/` y `dist/client/` actualizados).
+- `npm test` → **30/30 pruebas aprobadas** (9 suites).
