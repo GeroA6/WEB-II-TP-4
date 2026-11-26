@@ -1,8 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { resolve } from "node:path";
 import { DummyJsonCatalogClient, type CatalogClient } from "./catalogClient.js";
 import type { AppConfig } from "./config.js";
 import { ProposalService } from "./proposalService.js";
 import { SseBroker } from "./sseBroker.js";
+import { StaticFileServer } from "./staticFiles.js";
 import { GiftListStore } from "./store.js";
 import { WsGateway, type StateChangeListener } from "./wsGateway.js";
 
@@ -10,6 +12,7 @@ export interface AppOverrides {
   store?: GiftListStore;
   catalogClient?: CatalogClient;
   onStateChange?: StateChangeListener;
+  clientDistDir?: string;
 }
 
 export interface GiftListApp {
@@ -43,6 +46,9 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
     });
   const proposalService = new ProposalService(store, catalogClient);
   const sseBroker = new SseBroker(store);
+  const staticFiles = new StaticFileServer(
+    overrides.clientDistDir ?? resolve(process.cwd(), "dist/client")
+  );
 
   const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
     const method = req.method ?? "GET";
@@ -68,6 +74,10 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
           sseClients: sseBroker.getClientCount(),
         },
       });
+      return;
+    }
+
+    if (method === "GET" && staticFiles.tryServe(url.pathname, res)) {
       return;
     }
 

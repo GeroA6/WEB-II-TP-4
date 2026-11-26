@@ -6,19 +6,28 @@
   "description": "TP4 - Lista compartida en tiempo real con Node.js, TypeScript, WebSocket, SSE y DummyJSON",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env server/src/index.ts",
+    "dev:client": "vite",
     "start:dev": "tsx --env-file-if-exists=.env server/src/index.ts",
-    "build": "tsc",
+    "build:server": "tsc",
+    "build:client": "vite build",
+    "build": "npm run build:server && npm run build:client",
     "start": "node --env-file-if-exists=.env dist/server/src/index.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p client/tsconfig.json --noEmit",
     "test": "tsx --test server/src/*.test.ts"
   },
   "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
   }
 }
