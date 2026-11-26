@@ -68,6 +68,7 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
           catalogUrl: config.catalogUrl,
           catalogTimeoutMs: config.catalogTimeoutMs,
           catalogDelayMs: config.catalogDelayMs,
+          wsHeartbeatMs: config.wsHeartbeatMs,
         },
         stats: {
           participants: store.getParticipantCount(),
@@ -93,6 +94,7 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
     store,
     proposalService,
     path: "/ws",
+    heartbeatIntervalMs: config.wsHeartbeatMs,
     onStateChange: () => {
       sseBroker.broadcastState();
       overrides.onStateChange?.();

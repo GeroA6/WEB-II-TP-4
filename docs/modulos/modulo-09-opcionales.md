@@ -46,3 +46,21 @@ Ya cubierto de forma transversal desde el Módulo 2 (validación de mensajes en 
 - `npm run typecheck` → OK (backend + React).
 - `npm run build` → OK (`dist/server/` y `dist/client/` actualizados).
 - `npm test` → **27/27 pruebas aprobadas** (8 suites).
+
+---
+
+## Opcional 4: Detección de conexiones muertas con `ping` y `pong`
+
+### Qué hicimos
+- `server/src/config.ts` y `.env.example`: agregamos la variable `WS_HEARTBEAT_MS` (default `15000` ms, `0` para desactivar).
+- `server/src/wsGateway.ts`:
+  - Mantenemos el estado vivo de cada socket en un `WeakMap<WebSocket, boolean>` (`aliveState`) para no retener memoria cuando un socket se libera.
+  - En cada ciclo de `setInterval`, si `isAlive === false` (no respondió al `ping` anterior) ejecutamos `ws.terminate()`, lo que dispara `close` y limpia al participante en el store y en la pantalla SSE. Si estaba vivo, lo marcamos `false` y enviamos `ws.ping()`.
+  - El listener `ws.on("pong")` vuelve a marcar `isAlive = true`. Todos los navegadores estándar responden `pong` automáticamente a nivel de protocolo RFC 6455 sin cambios en React.
+  - En `WsGateway.close()` limpiamos el intervalo (`clearInterval`).
+- `server/src/wsGateway.test.ts`: nueva prueba de integración con `wsHeartbeatMs: 50` donde un cliente con `autoPong: false` es detectado como muerto, terminado automáticamente y eliminado de `participants_updated` de los demás usuarios.
+
+### Verificación
+- `npm run typecheck` → OK.
+- `npm run build:server` → OK.
+- `npm test` → **28/28 pruebas aprobadas** (8 suites).

@@ -4,6 +4,7 @@ export interface AppConfig {
   catalogUrl: string;
   catalogTimeoutMs: number;
   catalogDelayMs: number;
+  wsHeartbeatMs: number;
 }
 
 export const DOMAIN_RULES = {
@@ -18,6 +19,7 @@ const DEFAULTS = {
   catalogUrl: "https://dummyjson.com/products",
   catalogTimeoutMs: 3000,
   catalogDelayMs: 0,
+  wsHeartbeatMs: 15000,
 } as const;
 
 function parseIntegerEnv(
@@ -69,6 +71,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.CATALOG_DELAY_MS,
       DEFAULTS.catalogDelayMs,
       "CATALOG_DELAY_MS",
+      0
+    ),
+    wsHeartbeatMs: parseIntegerEnv(
+      env.WS_HEARTBEAT_MS,
+      DEFAULTS.wsHeartbeatMs,
+      "WS_HEARTBEAT_MS",
       0
     ),
   };

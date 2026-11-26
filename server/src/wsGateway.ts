@@ -13,20 +13,23 @@ export interface WsGatewayDependencies {
   store: GiftListStore;
   proposalService: ProposalService;
   path?: string;
+  heartbeatIntervalMs?: number;
   onStateChange?: StateChangeListener;
 }
 
 /**
  * Capa de transporte WebSocket para participantes (SRP + OCP).
- * Comparte el mismo servidor HTTP y puerto, delega validaciones y reglas de negocio
- * y notifica cambios de estado mediante onStateChange (permitiendo acoplar SSE luego).
+ * Comparte el mismo servidor HTTP y puerto, delega validaciones y reglas de negocio,
+ * detecta conexiones muertas mediante ping/pong y notifica cambios de estado mediante onStateChange.
  */
 export class WsGateway {
   private readonly wss: WebSocketServer;
   private readonly store: GiftListStore;
   private readonly proposalService: ProposalService;
   private readonly joinedSockets = new Map<string, WebSocket>();
+  private readonly aliveState = new WeakMap<WebSocket, boolean>();
   private readonly onStateChange?: StateChangeListener;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor(deps: WsGatewayDependencies) {
     this.store = deps.store;
@@ -39,10 +42,32 @@ export class WsGateway {
     });
 
     this.wss.on("connection", (ws) => this.handleConnection(ws));
+
+    const heartbeatMs = deps.heartbeatIntervalMs ?? 15000;
+    if (heartbeatMs > 0) {
+      this.heartbeatTimer = setInterval(() => this.runHeartbeat(), heartbeatMs);
+    }
+  }
+
+  private runHeartbeat(): void {
+    for (const ws of this.wss.clients) {
+      if (this.aliveState.get(ws) === false) {
+        // No respondió pong al ping anterior: conexión muerta -> terminar
+        ws.terminate();
+        continue;
+      }
+      this.aliveState.set(ws, false);
+      ws.ping();
+    }
   }
 
   private handleConnection(ws: WebSocket): void {
     let sessionId: string | null = null;
+    this.aliveState.set(ws, true);
+
+    ws.on("pong", () => {
+      this.aliveState.set(ws, true);
+    });
 
     ws.on("message", (raw: RawData) => {
       const text = this.rawDataToString(raw);
@@ -299,6 +324,10 @@ export class WsGateway {
   }
 
   close(): Promise<void> {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     for (const client of this.wss.clients) {
       client.terminate();
     }

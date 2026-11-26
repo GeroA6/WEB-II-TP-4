@@ -13,6 +13,7 @@ const BASE_CONFIG: AppConfig = {
   catalogUrl: "https://dummyjson.com/products",
   catalogTimeoutMs: 3000,
   catalogDelayMs: 0,
+  wsHeartbeatMs: 0,
 };
 
 function sleep(ms: number): Promise<void> {
@@ -355,6 +356,46 @@ describe("WsGateway - integración HTTP + WebSocket en un único puerto", () => 
     } finally {
       await ana1.close();
       await ana2?.close();
+      await app.close();
+    }
+  });
+
+  it("detecta y elimina conexiones muertas que no responden pong mediante heartbeat", async () => {
+    const app = createGiftListApp({ ...BASE_CONFIG, wsHeartbeatMs: 50 });
+    await new Promise<void>((resolve) => app.httpServer.listen(0, "127.0.0.1", resolve));
+    const { port } = app.httpServer.address() as AddressInfo;
+
+    // Ana responde pong normalmente (autoPong: true por defecto)
+    const ana = await TestWsClient.connect(port);
+    // Cliente zombie: no responde frames pong (simula corte abrupto de red)
+    const zombie = await new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { autoPong: false });
+      ws.once("open", () => resolve(ws));
+      ws.once("error", reject);
+    });
+
+    try {
+      ana.sendJson({ type: "join", name: "Ana" });
+      await ana.nextMessage((m) => m.type === "welcome");
+
+      zombie.send(JSON.stringify({ type: "join", name: "Zombie" }));
+      const withZombie = await ana.nextMessage(
+        (m) => m.type === "participants_updated" && m.participants.length === 2
+      );
+      assert.equal(withZombie.type, "participants_updated");
+
+      // Sin cerrar el socket del cliente, el heartbeat (50ms) detecta falta de pong y lo elimina
+      const afterCleanup = await ana.nextMessage(
+        (m) => m.type === "participants_updated" && m.participants.length === 1,
+        1000
+      );
+      assert.equal(afterCleanup.type, "participants_updated");
+      if (afterCleanup.type === "participants_updated") {
+        assert.equal(afterCleanup.participants[0]?.name, "Ana");
+      }
+    } finally {
+      zombie.terminate();
+      await ana.close();
       await app.close();
     }
   });

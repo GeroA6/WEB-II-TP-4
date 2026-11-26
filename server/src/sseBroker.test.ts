@@ -14,6 +14,7 @@ const BASE_CONFIG: AppConfig = {
   catalogUrl: "https://dummyjson.com/products",
   catalogTimeoutMs: 3000,
   catalogDelayMs: 0,
+  wsHeartbeatMs: 0,
 };
 
 interface ParsedSseEvent {
