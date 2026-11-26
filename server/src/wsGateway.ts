@@ -42,7 +42,7 @@ export class WsGateway {
   }
 
   private handleConnection(ws: WebSocket): void {
-    const connectionId = randomUUID();
+    let sessionId: string | null = null;
 
     ws.on("message", (raw: RawData) => {
       const text = this.rawDataToString(raw);
@@ -57,32 +57,59 @@ export class WsGateway {
         return;
       }
 
-      this.handleMessage(ws, connectionId, parsed.value);
+      sessionId = this.handleMessage(ws, sessionId, parsed.value);
     });
 
     ws.on("close", () => {
-      this.cleanupConnection(connectionId);
+      if (sessionId !== null) {
+        this.cleanupConnection(sessionId);
+        sessionId = null;
+      }
     });
 
     ws.on("error", () => {
-      this.cleanupConnection(connectionId);
+      if (sessionId !== null) {
+        this.cleanupConnection(sessionId);
+        sessionId = null;
+      }
     });
   }
 
-  private handleMessage(ws: WebSocket, connectionId: string, msg: ClientMessage): void {
+  private handleMessage(
+    ws: WebSocket,
+    currentSessionId: string | null,
+    msg: ClientMessage
+  ): string | null {
     switch (msg.type) {
       case "join": {
-        const result = this.store.joinParticipant(connectionId, msg.name);
+        if (currentSessionId !== null) {
+          this.send(ws, {
+            type: "error",
+            code: "ALREADY_JOINED",
+            message: "Esta conexión ya ingresó con un nombre.",
+          });
+          return currentSessionId;
+        }
+
+        // Reutiliza participantId previo si la sesión anterior ya se desconectó
+        const candidateId =
+          msg.participantId &&
+          !this.joinedSockets.has(msg.participantId) &&
+          !this.store.getParticipant(msg.participantId)
+            ? msg.participantId
+            : randomUUID();
+
+        const result = this.store.joinParticipant(candidateId, msg.name);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
             code: result.code,
             message: result.message,
           });
-          return;
+          return null;
         }
 
-        this.joinedSockets.set(connectionId, ws);
+        this.joinedSockets.set(candidateId, ws);
 
         // Quien entra recibe el estado completo de inmediato
         this.send(ws, {
@@ -98,71 +125,96 @@ export class WsGateway {
             type: "participants_updated",
             participants: this.store.getParticipants(),
           },
-          connectionId
+          candidateId
         );
         this.onStateChange?.();
-        return;
+        return candidateId;
       }
 
       case "propose_products": {
-        const participant = this.store.getParticipant(connectionId);
+        const participant =
+          currentSessionId !== null ? this.store.getParticipant(currentSessionId) : undefined;
         if (!participant) {
           this.send(ws, {
             type: "error",
             code: "NOT_JOINED",
             message: "Debes ingresar con un nombre antes de proponer productos.",
           });
-          return;
+          return currentSessionId;
         }
 
         // Operación asíncrona sin bloquear el Event Loop ni a los demás usuarios
         void this.handleProposal(ws, participant, msg.productIds);
-        return;
+        return currentSessionId;
       }
 
       case "vote": {
-        const result = this.store.voteProduct(connectionId, msg.productId);
+        if (currentSessionId === null) {
+          this.send(ws, {
+            type: "error",
+            code: "NOT_JOINED",
+            message: "Debes ingresar con un nombre antes de votar.",
+          });
+          return null;
+        }
+        const result = this.store.voteProduct(currentSessionId, msg.productId);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
             code: result.code,
             message: result.message,
           });
-          return;
+          return currentSessionId;
         }
 
         this.broadcastProducts();
-        return;
+        return currentSessionId;
       }
 
       case "unvote": {
-        const result = this.store.unvoteProduct(connectionId, msg.productId);
+        if (currentSessionId === null) {
+          this.send(ws, {
+            type: "error",
+            code: "NOT_JOINED",
+            message: "Debes ingresar con un nombre antes de retirar un voto.",
+          });
+          return null;
+        }
+        const result = this.store.unvoteProduct(currentSessionId, msg.productId);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
             code: result.code,
             message: result.message,
           });
-          return;
+          return currentSessionId;
         }
 
         this.broadcastProducts();
-        return;
+        return currentSessionId;
       }
 
       case "remove_product": {
-        const result = this.store.removeProduct(connectionId, msg.productId);
+        if (currentSessionId === null) {
+          this.send(ws, {
+            type: "error",
+            code: "NOT_JOINED",
+            message: "Debes ingresar con un nombre antes de quitar productos.",
+          });
+          return null;
+        }
+        const result = this.store.removeProduct(currentSessionId, msg.productId);
         if (!result.ok) {
           this.send(ws, {
             type: "error",
             code: result.code,
             message: result.message,
           });
-          return;
+          return currentSessionId;
         }
 
         this.broadcastProducts();
-        return;
+        return currentSessionId;
       }
     }
   }

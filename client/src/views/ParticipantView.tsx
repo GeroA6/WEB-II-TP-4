@@ -34,7 +34,9 @@ export function ParticipantView() {
                 ? "Conectado"
                 : connectionState === "connecting"
                   ? "Conectando..."
-                  : "Desconectado"}
+                  : connectionState === "reconnecting"
+                    ? "Reconectando..."
+                    : "Desconectado"}
             </span>
             {self && (
               <>
@@ -53,6 +55,13 @@ export function ParticipantView() {
         <JoinForm disabled={isClosed} error={error} onJoin={join} />
       ) : (
         <>
+          {connectionState === "reconnecting" && (
+            <div className="alert alert-warning" role="status">
+              Se perdió la conexión con el servidor. Reconectando automáticamente como{" "}
+              <strong>{self.name}</strong>...
+            </div>
+          )}
+
           <section className="card">
             <h2>Participantes conectados ({participants.length})</h2>
             <ul className="participant-list">
@@ -95,6 +104,7 @@ export function ParticipantView() {
                     product={product}
                     rank={index + 1}
                     selfId={self.id}
+                    disabled={isClosed}
                     onVote={vote}
                     onUnvote={unvote}
                     onRemove={removeProduct}

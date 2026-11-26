@@ -70,6 +70,29 @@ export function parseClientMessage(rawText: string): ValidationResult<ClientMess
       if (!nameResult.ok) {
         return nameResult;
       }
+
+      if (parsed.participantId !== undefined) {
+        if (
+          typeof parsed.participantId !== "string" ||
+          !/^[a-zA-Z0-9_-]{8,64}$/.test(parsed.participantId)
+        ) {
+          return {
+            ok: false,
+            code: "INVALID_MESSAGE",
+            message: 'El campo opcional "participantId" debe ser un identificador válido.',
+          };
+        }
+
+        return {
+          ok: true,
+          value: {
+            type: "join",
+            name: nameResult.value,
+            participantId: parsed.participantId,
+          },
+        };
+      }
+
       return {
         ok: true,
         value: { type: "join", name: nameResult.value },

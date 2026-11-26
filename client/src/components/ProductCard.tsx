@@ -4,6 +4,7 @@ interface ProductCardProps {
   product: ProductItem;
   rank: number;
   selfId?: string;
+  disabled?: boolean;
   onVote?: (productId: number) => void;
   onUnvote?: (productId: number) => void;
   onRemove?: (productId: number) => void;
@@ -14,6 +15,7 @@ export function ProductCard({
   product,
   rank,
   selfId,
+  disabled = false,
   onVote,
   onUnvote,
   onRemove,
@@ -59,12 +61,13 @@ export function ProductCard({
               <button
                 type="button"
                 className="btn-secondary"
+                disabled={disabled}
                 onClick={() => onUnvote?.(product.id)}
               >
                 Retirar voto
               </button>
             ) : (
-              <button type="button" onClick={() => onVote?.(product.id)}>
+              <button type="button" disabled={disabled} onClick={() => onVote?.(product.id)}>
                 Votar
               </button>
             )}
@@ -73,6 +76,7 @@ export function ProductCard({
               <button
                 type="button"
                 className="btn-danger"
+                disabled={disabled}
                 onClick={() => onRemove?.(product.id)}
               >
                 Quitar

@@ -24,3 +24,25 @@ Ya cubierto de forma transversal desde el Módulo 2 (validación de mensajes en 
 - `npm run typecheck` → OK.
 - `npm run build:server` → OK.
 - `npm test` → **26/26 pruebas aprobadas** (8 suites).
+
+---
+
+## Opcional 3: Reconexión automática del participante
+
+### Qué hicimos
+- `shared/protocol.ts`, `server/src/validation.ts` y `server/src/wsGateway.ts`:
+  - Agregamos el campo opcional `participantId?: string` en `JoinMessage` (retrocompatible con clientes que solo envían `name`).
+  - Cuando un participante se reconecta mientras el servidor sigue activo enviando su `participantId` previo (y esa sesión ya se había desconectado), el servidor reutiliza ese mismo identificador: así conserva sus **votos previos** (no puede votar doble y puede retirar votos anteriores) y su **permiso de autor** para quitar los productos que propuso.
+- `client/src/hooks/useParticipantSocket.ts`:
+  - Agregamos el estado `"reconnecting"` y reconexión automática con *exponential backoff* (`1s → 2s → 4s → máximo 5s`), reseteando el contador al reconectar y cancelando timers al desmontar el componente (`isUnmountedRef`).
+  - Persistimos `{ id, name }` de la sesión en `sessionStorage` (aislado por pestaña): cuando el nuevo `WebSocket` se abre, reenvía automáticamente `{ type: "join", name, participantId }`, recibiendo `welcome` con el estado actualizado de participantes y productos.
+  - Si mientras estuvo desconectado otro participante tomó su nombre (`NAME_TAKEN`), se limpia la sesión guardada y se muestra `JoinForm` con el aviso claro.
+- `client/src/views/ParticipantView.tsx`, `client/src/components/ProductCard.tsx` y `client/src/styles.css`:
+  - Muestran el estado `"Reconectando..."`, un aviso visual mientras se restablece el enlace y deshabilitan los botones de acción hasta volver a estar `"open"`.
+- `server/src/wsGateway.test.ts`:
+  - Nueva prueba de integración verificando reconexión con conservación de `participantId`, prevención de doble voto y permiso de autor para quitar productos.
+
+### Verificación
+- `npm run typecheck` → OK (backend + React).
+- `npm run build` → OK (`dist/server/` y `dist/client/` actualizados).
+- `npm test` → **27/27 pruebas aprobadas** (8 suites).

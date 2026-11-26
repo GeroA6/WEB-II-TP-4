@@ -289,4 +289,73 @@ describe("WsGateway - integración HTTP + WebSocket en un único puerto", () => 
       await app.close();
     }
   });
+
+  it("permite reconectar conservando participantId, votos previos y permiso de autor para quitar productos", async () => {
+    const fakeCatalog: CatalogClient = {
+      async fetchProduct(productId: number): Promise<CatalogFetchResult> {
+        return {
+          ok: true,
+          product: { id: productId, title: "Mochila", price: 85, thumbnail: "https://img/1.jpg" },
+        };
+      },
+    };
+
+    const app = createGiftListApp(BASE_CONFIG, { catalogClient: fakeCatalog });
+    await new Promise<void>((resolve) => app.httpServer.listen(0, "127.0.0.1", resolve));
+    const { port } = app.httpServer.address() as AddressInfo;
+
+    const ana1 = await TestWsClient.connect(port);
+    let ana2: TestWsClient | null = null;
+
+    try {
+      ana1.sendJson({ type: "join", name: "Ana" });
+      const w1 = await ana1.nextMessage((m) => m.type === "welcome");
+      assert.equal(w1.type, "welcome");
+      if (w1.type !== "welcome") return;
+      const originalId = w1.self.id;
+
+      // Ana propone #1 y lo vota
+      ana1.sendJson({ type: "propose_products", productIds: [1] });
+      await ana1.nextMessage((m) => m.type === "products_updated");
+      await ana1.nextMessage((m) => m.type === "proposal_result");
+
+      ana1.sendJson({ type: "vote", productId: 1 });
+      await ana1.nextMessage((m) => m.type === "products_updated");
+
+      // Se corta la conexión de Ana (servidor sigue encendido)
+      await ana1.close();
+      await sleep(30);
+
+      // Ana reconecta enviando su participantId anterior
+      ana2 = await TestWsClient.connect(port);
+      ana2.sendJson({ type: "join", name: "Ana", participantId: originalId });
+      const w2 = await ana2.nextMessage((m) => m.type === "welcome");
+      assert.equal(w2.type, "welcome");
+      if (w2.type !== "welcome") return;
+
+      assert.equal(w2.self.id, originalId);
+      assert.equal(w2.products.length, 1);
+      assert.ok(w2.products[0]?.voterIds.includes(originalId));
+
+      // No puede volver a votar el producto que ya votó antes de desconectarse
+      ana2.sendJson({ type: "vote", productId: 1 });
+      const dupVote = await ana2.nextMessage((m) => m.type === "error");
+      assert.equal(dupVote.type, "error");
+      if (dupVote.type === "error") {
+        assert.equal(dupVote.code, "INVALID_VOTE_ACTION");
+      }
+
+      // Conserva el permiso de autor para quitar su propio producto
+      ana2.sendJson({ type: "remove_product", productId: 1 });
+      const afterRemove = await ana2.nextMessage((m) => m.type === "products_updated");
+      assert.equal(afterRemove.type, "products_updated");
+      if (afterRemove.type === "products_updated") {
+        assert.equal(afterRemove.products.length, 0);
+      }
+    } finally {
+      await ana1.close();
+      await ana2?.close();
+      await app.close();
+    }
+  });
 });

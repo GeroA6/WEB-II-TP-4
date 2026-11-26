@@ -50,6 +50,7 @@ export type ErrorCode =
 export interface JoinMessage {
   type: "join";
   name: string;
+  participantId?: string;
 }
 
 export interface ProposeProductsMessage {
