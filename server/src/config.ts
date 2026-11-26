@@ -1,4 +1,5 @@
 export interface AppConfig {
+  host: string;
   port: number;
   catalogUrl: string;
   catalogTimeoutMs: number;
@@ -12,6 +13,7 @@ export const DOMAIN_RULES = {
 } as const;
 
 const DEFAULTS = {
+  host: "0.0.0.0",
   port: 3000,
   catalogUrl: "https://dummyjson.com/products",
   catalogTimeoutMs: 3000,
@@ -52,7 +54,9 @@ function parseUrlEnv(raw: string | undefined, fallback: string, name: string): s
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const host = env.HOST?.trim() || DEFAULTS.host;
   return {
+    host,
     port: parseIntegerEnv(env.PORT, DEFAULTS.port, "PORT", 1, 65535),
     catalogUrl: parseUrlEnv(env.CATALOG_URL, DEFAULTS.catalogUrl, "CATALOG_URL"),
     catalogTimeoutMs: parseIntegerEnv(

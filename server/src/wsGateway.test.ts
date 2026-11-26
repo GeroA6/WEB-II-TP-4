@@ -8,6 +8,7 @@ import type { CatalogClient, CatalogFetchResult } from "./catalogClient.js";
 import type { AppConfig } from "./config.js";
 
 const BASE_CONFIG: AppConfig = {
+  host: "127.0.0.1",
   port: 0,
   catalogUrl: "https://dummyjson.com/products",
   catalogTimeoutMs: 3000,

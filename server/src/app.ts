@@ -63,6 +63,7 @@ export function createGiftListApp(config: AppConfig, overrides: AppOverrides = {
       sendJson(res, 200, {
         status: "ok",
         config: {
+          host: config.host,
           port: config.port,
           catalogUrl: config.catalogUrl,
           catalogTimeoutMs: config.catalogTimeoutMs,
